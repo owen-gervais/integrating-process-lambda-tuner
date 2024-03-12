@@ -1,22 +1,27 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QFrame, QWidget, QMenu, QMenuBar, QAction, QWidget, QLabel, QFileDialog, QInputDialog, QMessageBox
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
-import matplotlib.pyplot as plt
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QAction, QFileDialog, QInputDialog, QMenuBar, QDialog, QRadioButton, QPushButton, QGroupBox
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
+import matplotlib.pyplot as plt
 import numpy as np
 
 class LambdaTuner(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # App data
+        # GUI data
         self.lines = []
+        self.labels = {}
+        self.locked = True
+
+        # Intialize the PV and CV data arrays
         self.pv_x_data = []
         self.pv_y_data = []
         self.cv_x_data = []
         self.cv_y_data = []
+
+        # Initializa the system parameters and gains
         self.slope1 = 0
         self.slope2 = 0
         self.td = 0
@@ -26,13 +31,9 @@ class LambdaTuner(QMainWindow):
         self.lambdaVal = 0
         self.processGain = 0
         self.proportionalGain = 0
+        self.integralGain = 0
         self.integralTime = 0
 
-        self.locked = True
-        self.dataLoaded = False
-
-        # Empty dictionary of labels
-        self.labels = {}
         self.init_ui()        
 
     def init_ui(self):
@@ -41,7 +42,7 @@ class LambdaTuner(QMainWindow):
         '''
         # Set the title and size of the application
         self.setWindowTitle('Integrating Process Lambda Tuner')
-        self.setGeometry(100, 100, 700, 850)
+        self.setFixedSize(900, 965)
 
         # Set the central widget and main vertical layout
         self.central_widget = QWidget(self)
@@ -52,14 +53,12 @@ class LambdaTuner(QMainWindow):
         self.create_menubar()
         self.create_plots()
         self.create_output_labels()
-        self.show_startup_message()
 
     def create_menubar(self):
         '''
-        Creates the menubar object with Load, Add Cursors, and Clear functions
+        Creates the menubar object with Steps field to move through the application
         '''
         # Create a menu bar with a data field
-
         menubar = self.menuBar()
         steps = menubar.addMenu('Steps')
 
@@ -74,23 +73,17 @@ class LambdaTuner(QMainWindow):
         self.add_cursors_action.setEnabled(False)
         steps.addAction(self.add_cursors_action) 
 
-        # Calculate the system parameters
+        # Calculate the system parameters based on the cursor locations
         self.calc_params_action = QAction('3. Calculate System Parameters..', self)
         self.calc_params_action.triggered.connect(self.calc_sys_params) 
         self.calc_params_action.setEnabled(False)
         steps.addAction(self.calc_params_action) 
 
-        # Choose Lambda value
-        self.choose_lambda_action = QAction('4. Choose Lambda Value..', self)
+        # Choose Lambda value for the gain calculations
+        self.choose_lambda_action = QAction('4. Choose Lambda Value and Calculate Gains..', self)
         self.choose_lambda_action.triggered.connect(self.show_lambda_input_popup) 
         self.choose_lambda_action.setEnabled(False)
-        steps.addAction(self.choose_lambda_action) 
-
-        # Calculate Gains
-        self.calc_gains_action = QAction('5. Calculate Gains..', self)
-        self.calc_gains_action.triggered.connect(self.calc_gains) 
-        self.calc_gains_action.setEnabled(False)
-        steps.addAction(self.calc_gains_action)
+        steps.addAction(self.choose_lambda_action)
 
     def create_plots(self):
         '''
@@ -101,7 +94,7 @@ class LambdaTuner(QMainWindow):
 
         # Create Matplotlib Canvas widget
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setFixedSize(700,600)
+        self.canvas.setFixedSize(875,700)
         self.layout.addWidget(self.canvas)
 
         # Set the titles and x labels of the plots
@@ -127,7 +120,7 @@ class LambdaTuner(QMainWindow):
 
         # Create separator vertical lines
         vline_frames = []
-        for i in range(0,3):
+        for i in range(0,4):
             vline_frame = QFrame(self)
             vline_frame.setFrameShape(QFrame.VLine)
             vline_frame.setFrameShadow(QFrame.Sunken)
@@ -138,13 +131,14 @@ class LambdaTuner(QMainWindow):
         self.labels['slope1'] = QLabel('Slope 1: 0', self)
         self.labels['slope2'] = QLabel('Slope 2: 0', self)
         self.labels['td'] = QLabel('Td: 0', self)
+        self.labels['Kp'] = QLabel('Kp: 0', self)
  
         # Apply alignment and add widgets to the horizontal layout
         i = 0
         for label in self.labels.values():
             label.setAlignment(Qt.AlignCenter)
             self.hOutputLabels.addWidget(label)
-            if i < 3:
+            if i < 4:
                 self.hOutputLabels.addWidget(vline_frames[i])
                 i+=1
 
@@ -153,9 +147,9 @@ class LambdaTuner(QMainWindow):
 
         # Initialize the vertical layout output labels
         self.labels['L'] = QLabel('Lambda, λ: 0', self)
-        self.labels['Kp'] = QLabel('Process Gain, Kp: 0', self)
         self.labels['P'] = QLabel('Proportional Gain, P: 0', self)
         self.labels['It'] = QLabel('Integral Time, It: 0', self)
+        self.labels['I'] = QLabel('Integral Gain, I: 0', self)
 
         # Create the horizontal divider line separating the horizontal layout
         line_frame = QFrame(self)
@@ -164,24 +158,14 @@ class LambdaTuner(QMainWindow):
 
         # Set alignment on the labels and add widgets to the main layout
         self.labels['L'].setAlignment(Qt.AlignCenter)
-        self.labels['Kp'].setAlignment(Qt.AlignCenter)
         self.labels['P'].setAlignment(Qt.AlignCenter)
         self.labels['It'].setAlignment(Qt.AlignCenter)
+        self.labels['I'].setAlignment(Qt.AlignCenter)
         self.layout.addWidget(line_frame)
         self.layout.addWidget(self.labels['L'])
-        self.layout.addWidget(self.labels['Kp'])
         self.layout.addWidget(self.labels['P'])
         self.layout.addWidget(self.labels['It'])
-
-    def show_startup_message(self):
-        """
-            Shows the startup message
-        """
-        message_box = QMessageBox()
-        message_box.setWindowTitle('Integrating Process Lambda Tuner')
-        message_box.setText('Select the Steps menu in the top left corner to work through the tuning')
-        message_box.setIcon(QMessageBox.Information)
-        message_box.exec_()
+        self.layout.addWidget(self.labels['I'])
 
     def update_plots(self):
         """
@@ -209,7 +193,6 @@ class LambdaTuner(QMainWindow):
         '''
             Clear all of the cursors on the plot
         '''
-
         # Iterate through the list of saved cursors and remove from the ax
         for line in self.lines:
             line.remove()
@@ -217,42 +200,6 @@ class LambdaTuner(QMainWindow):
         # Clear all data members
         self.lines = []
         
-        self.canvas.draw()
-
-    def reset(self):
-        '''
-            Clear all contents on the plot
-        '''
-        self.clear_cursors()
-
-        self.pv_x_data = []
-        self.pv_y_data = []
-        self.cv_x_data = []
-        self.cv_y_data = []
-
-        self.slope1 = 0
-        self.slope2 = 0
-        self.td = 0
-        self.delOutput = 0
-        self.pvTransPt = 0
-        self.cvTransPt = 0
-        self.locked = True
-        self.dataLoaded = False
-        
-        self.ax1.clear()
-        self.ax2.clear()
-
-        # Set the titles and x labels of the plots
-        self.ax1.set_title('CV')
-        self.ax2.set_title('PV')
-        self.ax2.set_xlabel('Time')
-
-        # Reset the labels 
-        self.labels['delOutput'].setText('∆Output: 0')
-        self.labels['slope1'].setText('Slope 1: 0')
-        self.labels['slope2'].setText('Slope 2: 0')
-        self.labels['td'].setText('Td: 0')
-
         self.canvas.draw()
 
     def on_canvas_click(self, event):
@@ -286,6 +233,8 @@ class LambdaTuner(QMainWindow):
                 self.cv_x_data = data[:, 0]
                 self.pv_y_data = data[:, 1]
                 self.cv_y_data = data[:, 2]
+                self.test = QDialog().show()
+
                 self.update_plots()
                 self.load_action.setEnabled(False)
                 self.add_cursors_action.setEnabled(True)
@@ -299,6 +248,7 @@ class LambdaTuner(QMainWindow):
         self.find_slopes()
         self.find_del_output()
         self.find_td()
+        self.find_process_gain()
         self.calc_params_action.setEnabled(False)
         self.choose_lambda_action.setEnabled(True)
 
@@ -324,22 +274,122 @@ class LambdaTuner(QMainWindow):
         sl2_coeffs = np.polyfit(sl2x.flatten(), sl2y.flatten(), 1)
 
         # Set the internal storage variables
-        self.slope1 = np.round(sl1_coeffs[0], decimals=3)
-        self.slope2 = np.round(sl2_coeffs[0], decimals=3)
+        self.slope1 = sl1_coeffs[0]
+        self.slope2 = sl2_coeffs[0]
+
+        # Grab the limits on the current view
+        ax2xLims = self.ax2.get_xlim()
+        ax2yLims = self.ax2.get_ylim()
+
+        # Create an array for new line
+        # Generate x values within the xlim range
+        sl1_x = np.linspace(ax2xLims[0], ax2xLims[1], 100)  
+        sl2_x = np.linspace(ax2xLims[0], ax2xLims[1], 100)  
+
+        # Calculate corresponding y values based on the equation
+        sl1_y = sl1_coeffs[0] * sl1_x + sl1_coeffs[1]
+        sl2_y = sl2_coeffs[0] * sl2_x + sl2_coeffs[1]
+
+        # Find all indices that outside the viewport limits
+        sl1_indices = np.where((sl1_y >= ax2yLims[0]) & (sl1_y <= ax2yLims[1]))
+        sl2_indices = np.where((sl2_y >= ax2yLims[0]) & (sl2_y <= ax2yLims[1]))
+
+        # Plot the lines of best fit
+        self.ax2.plot(sl1_x[sl1_indices], sl1_y[sl1_indices], color='red', linestyle='--', linewidth='0.8')
+        self.ax2.plot(sl2_x[sl2_indices], sl2_y[sl2_indices], color='red', linestyle='--', linewidth='0.8')
 
         # Set the labels on the GUI
-        self.labels['slope1'].setText('Slope 1: {}'.format(self.slope1))
-        self.labels['slope2'].setText('Slope 2: {}'.format(self.slope2))
+        self.labels['slope1'].setText('Slope 1: {} C/s'.format(np.round(self.slope1*1000, decimals=4)))
+        self.labels['slope2'].setText('Slope 2: {} C/s'.format(np.round(self.slope2*1000, decimals=4)))
  
         # Find the points of intersection
         self.pvTransPt, inter_y = self.find_intersection_point(sl1_coeffs, sl2_coeffs)
+
+        self.ax2.axvline(x=self.pvTransPt, color='green', linestyle='--', linewidth='0.8')
+
+        self.ax2.plot()
 
         # Plot the intersection point
         self.ax2.plot(self.pvTransPt, inter_y, marker='o', color='r')
 
         self.canvas.draw()
 
-    def find_intersection_point(self, line1, line2):
+    def find_del_output(self):
+        """
+            Finds the command output transition point and control value transition time
+        """
+        prev_val = self.cv_y_data[0]
+        for i, val in enumerate(self.cv_y_data):
+            curr_val = val
+            if curr_val != prev_val:
+                cvTransPtIdx = i-1
+                self.del_output = curr_val - prev_val
+            prev_val = curr_val
+
+        # Set the cvTransPt value
+        self.cvTransPt = self.cv_x_data[cvTransPtIdx]
+
+        # Plot the veritcal lines for the intersection with Td
+        self.ax1.axvline(x=self.cvTransPt, color='green', linestyle='--', linewidth='0.8')
+        self.ax2.axvline(x=self.cvTransPt, color='green', linestyle='--', linewidth='0.8')
+
+        # Plot the command transition point
+        self.ax1.plot(self.cv_x_data[cvTransPtIdx], self.cv_y_data[cvTransPtIdx], marker='o', color='r')
+        self.canvas.draw()
+
+        # Set the label on the GUI
+        self.labels['delOutput'].setText('∆Output: {}'.format(np.round(self.del_output, decimals=8)))
+
+    def find_td(self):
+        """
+            Finds the dead time of the system
+        """
+        # Calculate the dead time
+        self.td = (self.pvTransPt - self.cvTransPt)/1000                            
+
+        # Set the label on the GUI
+        self.labels['td'].setText('Td: {} s'.format(np.round(self.td, decimals=4)))
+
+    def find_process_gain(self):
+        """
+        Calculate the process gain based on the found system parameters
+        """
+        # Calculate the process gain
+        self.processGain = (self.slope2 - self.slope1)/self.del_output
+        self.labels['Kp'].setText('Kp: {}'.format(np.round(self.processGain, decimals=8)))
+
+    def show_lambda_input_popup(self):
+        """
+            Show the lambda input popup, reset the label value, and call the gain calculation function
+        """
+        value, ok = QInputDialog.getText(self, '', 'Enter the Lambda (λ) value (Units: s): \n\n Minimum Value (3*Td): {} s'.format(np.round(3*self.td, decimals=2)))
+        if ok and value:
+            value = value.replace(",","")                                    # Strip out commas from the lambda input if formatted incorrectly
+            self.lambdaVal = float(value)*1000                               # Convert the str s input to float ms
+            self.labels['L'].setText('Lambda, λ: {}'.format(self.lambdaVal)) # Update the lambda label on the application
+            self.calc_gains()                                                # Calculate the lambda tuning gains
+        
+    def calc_gains(self):
+        """
+            Calculate all of the lambda tuning gains
+        """
+        # Calculate the proportional gain
+        pNumerator = 2*self.lambdaVal + self.td
+        pDenomenator = self.processGain*((self.lambdaVal + self.td)**2)
+        self.proportionalGain = pNumerator/pDenomenator
+
+        # Calculate the integral time
+        self.integralTime = pNumerator
+        
+        # Calculate the integral gain
+        self.integralGain = self.proportionalGain/self.integralTime
+
+        # Update the labels on the application
+        self.labels['P'].setText('Proportional Gain, P: {}'.format(np.round(self.proportionalGain, decimals=8)))
+        self.labels['It'].setText('Integral Time, It: {}'.format(np.round(self.integralTime, decimals=8)))
+        self.labels['I'].setText('Integral Gain, I: {}'.format(np.round(self.integralGain, decimals=8)))
+
+    def find_intersection_point(self, line1, line2): 
         """
             Finds the intersection point between the two lines
         """
@@ -361,63 +411,6 @@ class LambdaTuner(QMainWindow):
         slx = self.pv_x_data[slIndices]     
         sly = self.pv_y_data[slIndices]
         return slx, sly
-
-    def find_del_output(self):
-        """
-            Finds the command output transition point and control value transition time
-        """
-        prev_val = self.cv_y_data[0]
-        for i, val in enumerate(self.cv_y_data):
-            curr_val = val
-            if curr_val != prev_val:
-                cvTransPtIdx = i-1
-                self.del_output = np.round(curr_val - prev_val, decimals=3)
-            prev_val = curr_val
-
-        # Set the cvTransPt value
-        self.cvTransPt = self.cv_x_data[cvTransPtIdx]
-
-        # Plot the command transition point
-        self.ax1.plot(self.cv_x_data[cvTransPtIdx], self.cv_y_data[cvTransPtIdx], marker='o', color='r')
-        self.canvas.draw()
-
-        # Set the label on the GUI
-        self.labels['delOutput'].setText('∆Output: {}'.format(self.del_output))
-
-    def find_td(self):
-        """
-            Finds the dead time of the system
-        """
-        # Calculate the dead time
-        self.td = np.round(self.pvTransPt - self.cvTransPt, decimals=3)
-
-        # Set the label on the GUI
-        self.labels['td'].setText('Td: {}'.format(self.td))
-
-    def show_lambda_input_popup(self):
-        """
-            Show the lambda input popup
-        """
-        value, ok = QInputDialog.getText(self, 'Lambda Input', 'Enter the desired value:')
-
-        if ok and value:
-            self.lambdaVal = float(value)
-            self.calc_gains_action.setEnabled(True)
-            self.labels['L'].setText('Lambda, λ: {}'.format(self.lambdaVal))
-        
-    def calc_gains(self):
-        """
-            Calculate all of the lambda gains
-        """
-        self.processGain = np.round((self.slope2 - self.slope1)/self.del_output, decimals=4)
-        pNumerator = 2*self.lambdaVal + self.td
-        pDenomenator = self.processGain*((self.lambdaVal + self.td)**2)
-        self.proportionalGain = np.round(pNumerator/pDenomenator, decimals=4)
-        self.integralTime = np.round(pNumerator, decimals=4)
-
-        self.labels['Kp'].setText('Process Gain, Kp: {}'.format(self.processGain))
-        self.labels['P'].setText('Proportional Gain, P: {}'.format(self.proportionalGain))
-        self.labels['It'].setText('Integral Time, It: {}'.format(self.integralTime))
 
 def main():
     app = QApplication(sys.argv)
