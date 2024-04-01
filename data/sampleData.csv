@@ -1,4 +1,4 @@
-Time,Temp,DutyCycle
+Time (ms),Temp (F),DutyCycle (%)
 9230,19.2,0.2
 9240,19.2,0.2
 9250,19.2,0.2
