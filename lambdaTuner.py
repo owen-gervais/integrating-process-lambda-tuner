@@ -1,5 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QAction, QFileDialog, QInputDialog
+from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
 import matplotlib.pyplot as plt
 import numpy as np
