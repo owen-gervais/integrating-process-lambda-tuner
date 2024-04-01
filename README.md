@@ -1,5 +1,5 @@
 # integrating-process-lambda-tuner
-Automated approach to performing a base lambda tune on an integrating process.
+Automated approach to performing a base lambda tune on an integrating process. When tuning PID loops for integrating processes, a common initial approach for ballpark gains is to perform lambda tuning. 
 
 
 
